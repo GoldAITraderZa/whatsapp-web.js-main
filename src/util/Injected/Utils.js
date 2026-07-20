@@ -951,9 +951,9 @@ exports.LoadUtils = () => {
 
         if (chat.groupMetadata) {
             model.isGroup = true;
-            const chatWid = window
-                .require('WAWebWidFactory')
-                .createWid(chat.id._serialized);
+const chatWid = window
+    .require('WAWebWidFactory')
+    .createWid(chat.id._serialized || chat.id.$1);
             const groupMetadata =
                 window.require('WAWebCollections').GroupMetadata ||
                 window.require('WAWebCollections').WAWebGroupMetadataCollection;
@@ -979,24 +979,27 @@ exports.LoadUtils = () => {
                 chat.newsletterMetadata.creationTime;
         }
 
-        model.lastMessage = null;
-        if (model.msgs && model.msgs.length) {
-            const lastMessage = chat.lastReceivedKey
-                ? window
+model.lastMessage = null;
+if (model.msgs && model.msgs.length) {
+    const lastReceivedKey = chat.lastReceivedKey
+        ? (chat.lastReceivedKey._serialized || chat.lastReceivedKey.$1)
+        : null;
+
+    const lastMessage = lastReceivedKey
+        ? (
+              window.require('WAWebCollections').Msg.get(lastReceivedKey) ||
+              (
+                  await window
                       .require('WAWebCollections')
-                      .Msg.get(chat.lastReceivedKey._serialized) ||
-                  (
-                      await window
-                          .require('WAWebCollections')
-                          .Msg.getMessagesById([
-                              chat.lastReceivedKey._serialized,
-                          ])
-                  )?.messages?.[0]
-                : null;
-            lastMessage &&
-                (model.lastMessage =
-                    window.WWebJS.getMessageModel(lastMessage));
-        }
+                      .Msg.getMessagesById([lastReceivedKey])
+              )?.messages?.[0]
+          )
+        : null;
+
+    if (lastMessage) {
+        model.lastMessage = window.WWebJS.getMessageModel(lastMessage);
+    }
+}
 
         delete model.msgs;
         delete model.msgUnsyncedButtonReplyMsgs;
@@ -1103,63 +1106,6 @@ exports.LoadUtils = () => {
             type: mimetype,
             lastModified: Date.now(),
         });
-    };
-
-    /**
-     * Resolves the media blob and metadata for a message.
-     * Shared by downloadMedia and downloadMediaStream.
-     * @param {string} msgId
-     * @returns {Promise<{blob: Blob, mimetype: string, filename: string, filesize: number}|null>}
-     */
-    window.WWebJS.resolveMediaBlob = async (msgId) => {
-        const { Msg } = window.require('WAWebCollections');
-        const msg =
-            Msg.get(msgId) ||
-            (await Msg.getMessagesById([msgId]))?.messages?.[0];
-
-        if (
-            !msg ||
-            !msg.mediaData ||
-            msg.mediaData.mediaStage === 'REUPLOADING'
-        ) {
-            return null;
-        }
-
-        // Always call internal downloadMedia - never skip based on
-        // mediaStage, because cache eviction can leave stage=RESOLVED
-        // with empty InMemoryMediaBlobCache.
-        await msg.downloadMedia({
-            downloadEvenIfExpensive: true,
-            rmrReason: 1,
-            isUserInitiated: true,
-        });
-
-        if (
-            msg.mediaData.mediaStage.includes('ERROR') ||
-            msg.mediaData.mediaStage === 'FETCHING'
-        ) {
-            return null;
-        }
-
-        const cached = window
-            .require('WAWebMediaInMemoryBlobCache')
-            .InMemoryMediaBlobCache.get(msg.mediaObject?.filehash);
-
-        let blob;
-        if (cached) {
-            blob = cached;
-        } else if (msg.mediaObject?.mediaBlob) {
-            blob = msg.mediaObject.mediaBlob.forceToBlob();
-        }
-
-        if (!blob) return null;
-
-        return {
-            blob,
-            mimetype: msg.mimetype,
-            filename: msg.filename,
-            filesize: msg.size,
-        };
     };
 
     window.WWebJS.arrayBufferToBase64 = (arrayBuffer) => {
